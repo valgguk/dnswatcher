@@ -12,6 +12,7 @@ import (
 
 	"github.com/howeyc/gopass"
 	"github.com/niclabs/Observatorio/dbController"
+	"github.com/niclabs/Observatorio/dataAnalyzer"
 )
 
 var mutexTT *sync.Mutex   // Used for synchronization if needed.
@@ -184,7 +185,7 @@ func initjsonsFolder() {
 //   - db: the active database connection used for retrieving and storing data.
 func saveDispersion(runId int, ts string, db *sql.DB) {
 	saveCountNSPerDomain(runId, ts, db)
-	saveCountASNPerDomain(runId, ts, db)
+	dataAnalyzer.SaveCountASNPerDomain(runId, ts, db)
 	saveCountCountryPerDomain(runId, ts, db)
 	saveCountNSCountryASNPerDomain(runId, ts, db)
 	saveCountNSIPv4IPv6(runId, ts, db)
@@ -450,7 +451,7 @@ func saveCountNSIPv4IPv6(runId int, ts string, db *sql.DB) {
 		}
 	}
 
-	filename := fmt.Sprintf("%s/%d_CountNSIPv4IPv6_%s.json", jsonFolder, runId, ts)
+	filename := fmt.Sprintf("%s/%d_CountNSIPv4IPv6_%s.json", jsonsFolder, runId, ts)
 	file, err := os.Create(filename)
 	if err != nil {
 		log.Fatalf("Error creating JSON file: %v", err)
@@ -489,7 +490,7 @@ func saveCountDomainsWithCountNSIPs(runId int, ts string, db *sql.DB) {
 	}
 	defer rows.Close()
 
-	filename := fmt.Sprintf("%s/%d_CountDomainsWithCountNSIPs_%s.json", jsonFolder, runId, ts)
+	filename := fmt.Sprintf("%s/%d_CountDomainsWithCountNSIPs_%s.json", jsonsFolder, runId, ts)
 	file, err := os.Create(filename)
 	if err != nil {
 		log.Fatalf("Error creating JSON file: %v", err)

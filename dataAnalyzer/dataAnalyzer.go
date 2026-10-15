@@ -232,7 +232,7 @@ func initjsonFolder() {
 // This function does not return a value; it writes results to JSON files.
 func saveDispersion(runId int, ts string, db *sql.DB) {
 	saveCountNSPerDomain(runId, ts, db)
-	saveCountASNPerDomain(runId, ts, db)
+	SaveCountASNPerDomain(runId, ts, db)
 	saveCountCountryPerDomain(runId, ts, db)
 	saveCountNSCountryASNPerDomain(runId, ts, db)
 	saveCountNSIPv4IPv6(runId, ts, db)
@@ -1263,7 +1263,7 @@ func saveCountCountryPerDomain(runId int, ts string, db *sql.DB) {
 	}
 }
 
-// saveCountASNPerDomain retrieves and saves statistics about the number of Autonomous System Numbers (ASNs) per domain.
+// SaveCountASNPerDomain retrieves and saves statistics about the number of Autonomous System Numbers (ASNs) per domain.
 //
 // This function queries the database for ASN distribution data for each domain in the specified run,
 // processes the result set, and writes the data to a JSON file named using the run ID and timestamp.
@@ -1274,7 +1274,7 @@ func saveCountCountryPerDomain(runId int, ts string, db *sql.DB) {
 //   - db: Database connection used to retrieve statistical data.
 //
 // This function does not return a value; it panics on critical errors and logs scanning issues.
-func saveCountASNPerDomain(runId int, ts string, db *sql.DB) {
+func SaveCountASNPerDomain(runId int, ts string, db *sql.DB) {
 	rows, err := dbController.CountASNPerDomain(runId, db)
 	if err != nil {
 		panic(err)

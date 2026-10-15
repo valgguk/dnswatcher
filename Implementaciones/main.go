@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// change import later !!
-
 func calculateMedian(values []time.Duration) time.Duration {
 	if len(values) == 0 {
 		return 0

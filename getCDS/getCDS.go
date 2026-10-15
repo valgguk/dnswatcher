@@ -312,7 +312,7 @@ func main() {
 	inputFile, concurrency, ccmax, maxRetry, dropDatabase, database, user, password, debug := readArguments()
 
 	Drop = *dropDatabase
-	db, err := sql.Open("postgres", "user="+*user+" password="+*password+" dbname="+*database+" sslmode=disable")
+	db, err := sql.Open("postgres", "user="+*user+" password="+password+" dbname="+*database+" sslmode=disable")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -322,7 +322,7 @@ func main() {
 
 	for *concurrency <= ccmax {
 		for retry := 0; retry < *maxRetry; retry++ {
-			db, err := sql.Open("postgres", "user="+*user+" password="+*password+" dbname="+*database+" sslmode=disable")
+			db, err := sql.Open("postgres", "user="+*user+" password="+password+" dbname="+*database+" sslmode=disable")
 			if err != nil {
 				fmt.Println(err)
 				return
