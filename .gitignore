@@ -192,3 +192,6 @@ main_result.txt
 
 # Ignorar archivo de volcado de base de datos antes de migración
 backup_pre_migracion.dump
+
+# Ignorar de manera temporal doctordns
+doctordns/*

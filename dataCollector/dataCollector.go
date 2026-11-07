@@ -1,6 +1,7 @@
 package dataCollector
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,8 @@ import (
 	"github.com/niclabs/Observatorio/dbController"
 	"github.com/niclabs/Observatorio/dnsUtils"
 	"github.com/niclabs/Observatorio/geoIPUtils"
+	"github.com/niclabs/Observatorio/internal/analyzer"
+	"github.com/niclabs/Observatorio/internal/collector"
 	"github.com/niclabs/Observatorio/utils"
 	"github.com/oschwald/geoip2-golang"
 )
@@ -103,7 +106,7 @@ var rootServers = []RootServer{
 // Returns:
 //   - error: Returns an error if any step fails, otherwise returns nil.
 func InitCollect(dontProbeFileName string, drop bool, user string, password string, host string, port int, dbname string, geoipdb *geoIPUtils.GeoipDB, dnsServers []string) error {
-	drop = false //be careful, if this is true, it will drop the complete database
+	drop = true //be careful, if this is true, it will drop the complete database
 	//check Dont probelist file
 	dontProbeList = InitializeDontProbeList(dontProbeFileName)
 
@@ -255,13 +258,6 @@ func createCollectorRoutines(db *sql.DB, inputFile string, runId int) {
 		return
 	}
 
-	domainIDs, err := loadDomainIDsFromDB(db)
-	if err != nil {
-		log.Printf("error cargando domainIDs: %v", err)
-		// can continue with empty map
-		domainIDs = make(map[string]int)
-	}
-
 	domain_list_size = len(domainsList)
 
 	domainsList_normalized := normalizeDomainsList(domainsList)
@@ -305,6 +301,12 @@ func createCollectorRoutines(db *sql.DB, inputFile string, runId int) {
 
 	// Wait for routines to finish
 	wg.Wait()
+
+	domainIDs, err := loadDomainIDsFromDB(db)
+	if err != nil {
+		log.Printf("error cargando domainIDs: %v", err)
+		domainIDs = make(map[string]int)
+	}
 
 	// Collect root server availability data
 	availabilityWg := sync.WaitGroup{}
@@ -1070,6 +1072,20 @@ func collectSingleDomainInfo(domainName string, runId int, db *sql.DB) {
 	{ //Check NSs of the domain
 		// Obtain NS records for the domain
 		var domainsNameservers = getDomainsNameservers(domainName)
+		primaryNameservers := make([]string, 0, len(domainsNameservers))
+		for _, nameserver := range domainsNameservers {
+			if ns, ok := nameserver.(*dns.NS); ok {
+				primaryNameservers = append(primaryNameservers, ns.Ns)
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		parentNameservers, delegationErr := collector.NewTLDCollector(dnsClient).GetDelegatedNS(ctx, domainName)
+		cancel()
+		if delegationErr != nil {
+			manageError(fmt.Sprintf("delegation check: %s: %v", domainName, delegationErr))
+		} else {
+			dbController.SaveDelegationDiagnosis(domainId, analyzer.CompareNS(primaryNameservers, parentNameservers), db)
+		}
 
 		for _, nameserver := range domainsNameservers { //for each nameserver of the current domain_name
 			if ns, ok := nameserver.(*dns.NS); ok {

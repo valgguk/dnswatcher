@@ -2,12 +2,14 @@ package dbController
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/niclabs/Observatorio/internal/analyzer"
 )
 
 // CreateTables creates all necessary tables in the database for the DNS analysis application.
@@ -27,112 +29,150 @@ import (
 //
 // Panics if any table creation fails.
 func CreateTables(db *sql.DB, drop bool) {
-	DropTable("runs", db, drop)
+	if drop {
+		for _, table := range []string{
+			"web_presence",
+			"nsid_results",
+			"redundancy_distribution",
+			"dnssec_fail_details",
+			"dnssec_stats",
+			"correctness_stats",
+			"availability_observations",
+			"ds",
+			"nsec3",
+			"nsec",
+			"rrsig",
+			"dnskey",
+			"domain_ip",
+			"nameserver_ip",
+			"nameserver",
+			"domain",
+			"runs",
+		} {
+			DropTable(table, db, true)
+		}
+	}
+
 	_, err := db.Exec("CREATE TABLE  IF NOT EXISTS runs ( id SERIAL PRIMARY KEY, tstmp timestamp, correct_run bool, duration int, note text)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
 
-	DropTable("domain", db, drop)
-	_, err = db.Exec("CREATE TABLE  IF NOT EXISTS domain ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id),name varchar(253) unique not null, enabled bool not null default true, soa bool, non_existence_status int, nsec bool, nsecok bool, nsec3 bool, nsec3ok bool, wildcard bool, dnssec_ok bool, ds_found bool, ds_ok bool, dnskey_found bool, dnskey_ok bool)")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS domain ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id),name varchar(253) unique not null, enabled bool not null default true, soa bool, non_existence_status int, nsec bool, nsecok bool, nsec3 bool, nsec3ok bool, wildcard bool, dnssec_ok bool, ds_found bool, ds_ok bool, dnskey_found bool, dnskey_ok bool, delegation_status varchar(20), delegation_missing_in_primary jsonb, delegation_missing_in_parent jsonb)")
+	if err != nil {
+		fmt.Println("OpenConnections", db.Stats())
+		panic(err)
+	}
+	_, err = db.Exec(`ALTER TABLE domain
+		ADD COLUMN IF NOT EXISTS delegation_status varchar(20),
+		ADD COLUMN IF NOT EXISTS delegation_missing_in_primary jsonb,
+		ADD COLUMN IF NOT EXISTS delegation_missing_in_parent jsonb`)
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
 
-	DropTable("nameserver", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS nameserver ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), domain_id  integer REFERENCES domain(id), name varchar(253), response bool, edns bool, recursivity bool, tcp bool, zone_transfer bool, loc_query bool, authoritative bool)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("nameserver_ip", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS nameserver_ip ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), nameserver_id integer REFERENCES nameserver(id), ip inet, country varchar(30), asn varchar(10), dont_probe bool )")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("domain_ip", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS domain_ip ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), domain_id integer REFERENCES domain(id), ip inet)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("dnskey", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS dnskey ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), domain_id integer REFERENCES domain(id), public_key varchar(4096), owner varchar(253), ttl integer, type integer, protocol integer, algorithm integer, keytag integer, DSok bool)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("rrsig", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS rrsig (id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), domain_id integer REFERENCES domain(id), owner varchar(253), type_covered varchar(5), algorithm integer, labels integer, ttl integer, signature_expiration varchar(50), signature_inception varchar(50), keytag integer, signers_name varchar(48), signature varchar(1024))")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("nsec", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS nsec ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), domain_id integer REFERENCES domain(id), name varchar(253),  next_name varchar(253), ttl integer, rrsig_ok bool, cover bool, coverwc bool, iswc bool)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("nsec3", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS nsec3 ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), domain_id integer REFERENCES domain(id), hashed_name varchar(253),  next_hashed_name varchar(253), iterations integer, hash_algorithm integer, salt varchar(255), rrsig_ok bool, match bool, cover bool, coverwc bool, n3wc bool, key_found bool, verified bool, expired bool)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("ds", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS ds ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), domain_id integer REFERENCES domain(id), algorithm int, hashed_name varchar(253) , key_tag integer, digest_type integer, digest varchar(255), ds_ok bool)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
 	// new tables
-	DropTable("availability_observations", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS availability_observations ( id SERIAL PRIMARY KEY, run_id integer not null REFERENCES runs(id), domain_id integer not null REFERENCES domain(id), ip inet not null, ip_version smallint not null, proto varchar(3) not null, ok bool not null, latency_ms integer, observer_at timestamp not null default now())")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("correctness_stats", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS correctness_stats ( id SERIAL PRIMARY KEY, run_id integer not null REFERENCES runs(id), ip text not null, version varchar(3) not null, total_pos integer not null, success_pos integer not null, fail_pos integer not null, total_neg integer not null, success_neg integer not null, fail_neg integer not null)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("dnssec_stats", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS dnssec_stats ( id SERIAL PRIMARY KEY, run_id integer not null REFERENCES runs(id), domain_id integer not null REFERENCES domain(id), total integer not null, success integer not null, fail integer not null)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("dnssec_fail_details", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS dnssec_fail_details ( id SERIAL PRIMARY KEY, dnssec_stat_id integer not null REFERENCES dnssec_stats(id) on delete cascade, detail text not null)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("redundancy_distribution", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS redundancy_distribution ( id SERIAL PRIMARY KEY, run_id integer not null REFERENCES runs(id), domain_id integer not null REFERENCES domain(id), subnet_count integer not null)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("nsid_results", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS nsid_results ( id SERIAL PRIMARY KEY, run_id integer not null REFERENCES runs(id), domain_id integer not null REFERENCES domain(id), server text not null, nsid text, error text, latency_ms integer)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
-	DropTable("web_presence", db, drop)
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS web_presence ( id SERIAL PRIMARY KEY, run_id integer not null REFERENCES runs(id), domain_id integer not null REFERENCES domain(id), host_kind varchar(3) not null, scheme varchar(5) not null, url text not null, final_url text, status_code integer, reachable bool not null, tls_cn text, latency_ms integer, body_hash text, error text)")
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
 
+}
+
+// SaveDelegationDiagnosis stores the comparison between the primary zone and its parent delegation.
+func SaveDelegationDiagnosis(domainID int, diagnosis analyzer.DelegationDiagnosis, db *sql.DB) {
+	missingInPrimary, err := json.Marshal(diagnosis.MissingInPrimary)
+	if err != nil {
+		panic(err)
+	}
+	missingInParent, err := json.Marshal(diagnosis.MissingInParent)
+	if err != nil {
+		panic(err)
+	}
+	_, err = db.Exec(
+		`UPDATE domain
+		 SET delegation_status = $1,
+		     delegation_missing_in_primary = $2::jsonb,
+		     delegation_missing_in_parent = $3::jsonb
+		 WHERE id = $4`,
+		diagnosis.Status, missingInPrimary, missingInParent, domainID,
+	)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // DropTable drops the specified table from the database if the `drop` flag is true.
@@ -287,21 +327,19 @@ func SaveDNSKEY(dnskey *dns.DNSKEY, dsok bool, domainId int, runId int, db *sql.
 // new function to save availability results
 // SaveAvailabilityObservation inserta una observación de disponibilidad.
 func SaveAvailabilityObservation(runId int, domainId int, ip string, ipVersion int, proto string, ok bool, latency time.Duration, db *sql.DB) {
-	latMs := int(latency.Milliseconds())
-	var domainID sql.NullInt64
-	if domainId > 0 {
-		domainID = sql.NullInt64{Int64: int64(domainId), Valid: true}
-	} else {
-		domainID = sql.NullInt64{Valid: false}
+	if domainId <= 0 {
+		log.Printf("skipping availability observation with invalid domain_id=%d for ip=%s", domainId, ip)
+		return
 	}
+	latMs := int(latency.Milliseconds())
 
 	_, err := db.Exec(
 		`INSERT INTO availability_observations(run_id, domain_id, ip, ip_version, proto, ok, latency_ms)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		runId, domainID, ip, ipVersion, proto, ok, latMs,
+		runId, domainId, ip, ipVersion, proto, ok, latMs,
 	)
 	if err != nil {
-		fmt.Println("OpenConnections", db.Stats(), " domainId:", domainId, " ip:", ip)
+		fmt.Println("OpenConnections", db.Stats(), " domainId: ", domainId, " ip:", ip)
 		panic(err)
 	}
 }

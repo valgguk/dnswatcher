@@ -68,16 +68,11 @@ func RunDisponibilidad(domains []string, runId int, domainIDs map[string]int, db
 					stats.LatenciasTCP = append(stats.LatenciasTCP, latencyTCP)
 				}
 
-				// Guardar en BD: ahora SIEMPRE llamamos y la función manejará NULL si domainId==0
-				if db != nil {
+				if db != nil && domainId > 0 {
 					dbController.SaveAvailabilityObservation(runId, domainId, ip, 4, "UDP", okUDP, latencyUDP, db)
 					dbController.SaveAvailabilityObservation(runId, domainId, ip, 4, "TCP", okTCP, latencyTCP, db)
-					if domainId != 0 {
-						fmt.Printf("Successful: SI se encontró domain_id para %s, guardado\n", domain)
-
-					} else {
-						fmt.Printf("Failed: NO se encontró domain_id para %s, guardado con domain_id=0\n", domain)
-					}
+				} else if db != nil {
+					fmt.Printf("Skipping availability persistence: no domain_id for %s\n", domain)
 				}
 
 				//fmt.Printf("    IP: %s | UDP: %v (%.2fms) | TCP: %v (%.2fms)\n",
@@ -105,15 +100,11 @@ func RunDisponibilidad(domains []string, runId int, domainIDs map[string]int, db
 					stats.LatenciasTCP = append(stats.LatenciasTCP, latencyTCP)
 				}
 
-				// Guardar en BD: igual que IPv4
-				if db != nil {
+				if db != nil && domainId > 0 {
 					dbController.SaveAvailabilityObservation(runId, domainId, ip, 6, "UDP", okUDP, latencyUDP, db)
 					dbController.SaveAvailabilityObservation(runId, domainId, ip, 6, "TCP", okTCP, latencyTCP, db)
-					if domainId != 0 {
-						fmt.Printf("Successful: SI se encontró domain_id para %s, guardado\n", domain)
-					} else {
-						fmt.Printf("Failed: NO se encontró domain_id para %s, guardado con domain_id=0\n", domain)
-					}
+				} else if db != nil {
+					fmt.Printf("Skipping availability persistence: no domain_id for %s\n", domain)
 				}
 
 				//fmt.Printf("    IP: %s | UDP: %v (%.2fms) | TCP: %v (%.2fms)\n",
