@@ -1083,6 +1083,11 @@ func collectSingleDomainInfo(domainName string, runId int, db *sql.DB) {
 		cancel()
 		if delegationErr != nil {
 			manageError(fmt.Sprintf("delegation check: %s: %v", domainName, delegationErr))
+			dbController.SaveDelegationDiagnosis(domainId, analyzer.DelegationDiagnosis{
+				Status:         "warning",
+				Message:        "delegation_error",
+				PrimaryServers: primaryNameservers,
+			}, db)
 		} else {
 			dbController.SaveDelegationDiagnosis(domainId, analyzer.CompareNS(primaryNameservers, parentNameservers), db)
 		}
