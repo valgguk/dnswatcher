@@ -83,6 +83,8 @@ func CreateTables(db *sql.DB, drop bool) {
 		delegation_missing_in_parent jsonb,
 		soa_serial_sync bool,
 		soa_reference_serial bigint,
+		authoritative_flag_check bool,
+		non_authoritative_servers jsonb,
 		created_at timestamp NOT NULL DEFAULT now()
 	)`)
 	if err != nil {
@@ -93,7 +95,9 @@ func CreateTables(db *sql.DB, drop bool) {
 		ADD COLUMN IF NOT EXISTS soa_serial_sync bool,
 		ADD COLUMN IF NOT EXISTS soa_reference_serial bigint,
 		ADD COLUMN IF NOT EXISTS soa_mismatch_servers jsonb,
-		ADD COLUMN IF NOT EXISTS soa_unverifiable_servers jsonb`)
+		ADD COLUMN IF NOT EXISTS soa_unverifiable_servers jsonb,
+		ADD COLUMN IF NOT EXISTS authoritative_flag_check bool,
+		ADD COLUMN IF NOT EXISTS non_authoritative_servers jsonb`)
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
@@ -217,6 +221,24 @@ func SaveSOASyncDiagnosis(runID, domainID int, diagnosis analyzer.SOASyncDiagnos
 		     soa_unverifiable_servers = $4::jsonb
 		 WHERE run_id = $5 AND domain_id = $6`,
 		diagnosis.IsSynchronized, diagnosis.ReferenceSerial, outOfSync, unverifiable, runID, domainID,
+	)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// SaveAuthoritativeDiagnosis updates the AA flag metrics for a domain run.
+func SaveAuthoritativeDiagnosis(runID, domainID int, diagnosis analyzer.AuthoritativeDiagnosis, db *sql.DB) {
+	nonAuthoritative, err := json.Marshal(diagnosis.NonAuthoritativeServers)
+	if err != nil {
+		panic(err)
+	}
+	_, err = db.Exec(
+		`UPDATE domain_diagnostics
+		 SET authoritative_flag_check = $1,
+		     non_authoritative_servers = $2::jsonb
+		 WHERE run_id = $3 AND domain_id = $4`,
+		diagnosis.AllAuthoritative, nonAuthoritative, runID, domainID,
 	)
 	if err != nil {
 		panic(err)
