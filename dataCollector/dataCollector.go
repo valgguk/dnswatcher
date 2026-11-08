@@ -1092,6 +1092,12 @@ func collectSingleDomainInfo(domainName string, runId int, db *sql.DB) {
 			dbController.SaveDelegationDiagnosis(runId, domainId, analyzer.CompareNS(primaryNameservers, parentNameservers), db)
 		}
 
+		soaResults := make([]analyzer.NSSerialResult, 0, len(primaryNameservers))
+		for _, nameserver := range primaryNameservers {
+			soaResults = append(soaResults, querySOASerial(nameserver, domainName))
+		}
+		dbController.SaveSOASyncDiagnosis(runId, domainId, analyzer.ValidateSerialSync(soaResults), db)
+
 		for _, nameserver := range domainsNameservers { //for each nameserver of the current domain_name
 			if ns, ok := nameserver.(*dns.NS); ok {
 				var nameserverId int
@@ -1238,6 +1244,35 @@ func collectAvailabilityData(runId int, db *sql.DB) {
 			*/
 		}
 	}
+}
+
+// querySOASerial queries the domain SOA directly from one authoritative server.
+func querySOASerial(nsServer, domainName string) analyzer.NSSerialResult {
+	client := &dns.Client{Timeout: 4 * time.Second}
+	message := new(dns.Msg)
+	message.SetQuestion(dns.Fqdn(domainName), dns.TypeSOA)
+
+	response, _, err := client.Exchange(message, net.JoinHostPort(nsServer, "53"))
+	if err != nil {
+		return analyzer.NSSerialResult{Server: nsServer, Error: "ns_unverifiable_error"}
+	}
+	if response == nil {
+		return analyzer.NSSerialResult{Server: nsServer, Error: "ns_unverifiable_null_error"}
+	}
+	if response.Rcode != dns.RcodeSuccess {
+		return analyzer.NSSerialResult{Server: nsServer, Error: "ns_unverifiable_rcode_error"}
+	}
+	if !response.Authoritative {
+		return analyzer.NSSerialResult{Server: nsServer, Error: "ns_unverifiable_noauth_error"}
+	}
+
+	for _, answer := range response.Answer {
+		if soa, ok := answer.(*dns.SOA); ok {
+			serial := soa.Serial
+			return analyzer.NSSerialResult{Server: nsServer, Serial: &serial}
+		}
+	}
+	return analyzer.NSSerialResult{Server: nsServer, Error: "ns_unverifiable_no_soa"}
 }
 
 // querySOA sends a DNS SOA (Start of Authority) query to the specified server using the given protocol.

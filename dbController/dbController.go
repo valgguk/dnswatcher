@@ -89,6 +89,15 @@ func CreateTables(db *sql.DB, drop bool) {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
 	}
+	_, err = db.Exec(`ALTER TABLE domain_diagnostics
+		ADD COLUMN IF NOT EXISTS soa_serial_sync bool,
+		ADD COLUMN IF NOT EXISTS soa_reference_serial bigint,
+		ADD COLUMN IF NOT EXISTS soa_mismatch_servers jsonb,
+		ADD COLUMN IF NOT EXISTS soa_unverifiable_servers jsonb`)
+	if err != nil {
+		fmt.Println("OpenConnections", db.Stats())
+		panic(err)
+	}
 
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS nameserver ( id SERIAL PRIMARY KEY, run_id integer REFERENCES runs(id), domain_id  integer REFERENCES domain(id), name varchar(253), response bool, edns bool, recursivity bool, tcp bool, zone_transfer bool, loc_query bool, authoritative bool)")
 	if err != nil {
@@ -184,6 +193,30 @@ func SaveDelegationDiagnosis(runID, domainID int, diagnosis analyzer.DelegationD
 			(run_id, domain_id, delegation_status, delegation_missing_in_primary, delegation_missing_in_parent)
 		 VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
 		runID, domainID, diagnosis.Status, missingInPrimary, missingInParent,
+	)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// SaveSOASyncDiagnosis updates the SOA synchronization metrics for a domain run.
+func SaveSOASyncDiagnosis(runID, domainID int, diagnosis analyzer.SOASyncDiagnosis, db *sql.DB) {
+	outOfSync, err := json.Marshal(diagnosis.OutOfSyncServers)
+	if err != nil {
+		panic(err)
+	}
+	unverifiable, err := json.Marshal(diagnosis.UnverifiableServers)
+	if err != nil {
+		panic(err)
+	}
+	_, err = db.Exec(
+		`UPDATE domain_diagnostics
+		 SET soa_serial_sync = $1,
+		     soa_reference_serial = $2,
+		     soa_mismatch_servers = $3::jsonb,
+		     soa_unverifiable_servers = $4::jsonb
+		 WHERE run_id = $5 AND domain_id = $6`,
+		diagnosis.IsSynchronized, diagnosis.ReferenceSerial, outOfSync, unverifiable, runID, domainID,
 	)
 	if err != nil {
 		panic(err)
