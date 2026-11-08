@@ -106,7 +106,7 @@ var rootServers = []RootServer{
 // Returns:
 //   - error: Returns an error if any step fails, otherwise returns nil.
 func InitCollect(dontProbeFileName string, drop bool, user string, password string, host string, port int, dbname string, geoipdb *geoIPUtils.GeoipDB, dnsServers []string) error {
-	drop = true //be careful, if this is true, it will drop the complete database
+	// drop = false //be careful, if this is true, it will drop the complete database
 	//check Dont probelist file
 	dontProbeList = InitializeDontProbeList(dontProbeFileName)
 
@@ -1083,13 +1083,13 @@ func collectSingleDomainInfo(domainName string, runId int, db *sql.DB) {
 		cancel()
 		if delegationErr != nil {
 			manageError(fmt.Sprintf("delegation check: %s: %v", domainName, delegationErr))
-			dbController.SaveDelegationDiagnosis(domainId, analyzer.DelegationDiagnosis{
+			dbController.SaveDelegationDiagnosis(runId, domainId, analyzer.DelegationDiagnosis{
 				Status:         "warning",
 				Message:        "delegation_error",
 				PrimaryServers: primaryNameservers,
 			}, db)
 		} else {
-			dbController.SaveDelegationDiagnosis(domainId, analyzer.CompareNS(primaryNameservers, parentNameservers), db)
+			dbController.SaveDelegationDiagnosis(runId, domainId, analyzer.CompareNS(primaryNameservers, parentNameservers), db)
 		}
 
 		for _, nameserver := range domainsNameservers { //for each nameserver of the current domain_name

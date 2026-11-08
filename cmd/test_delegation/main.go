@@ -20,6 +20,7 @@ import (
 func main() {
 	domain := flag.String("domain", "nic.cl", "domain to inspect")
 	dsn := flag.String("dsn", os.Getenv("DNSWATCHER_TEST_DSN"), "optional PostgreSQL DSN")
+	runID := flag.Int("run-id", 0, "existing runs.id; defaults to the latest run")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -47,6 +48,11 @@ func main() {
 	if err := db.PingContext(ctx); err != nil {
 		log.Fatalf("connect database: %v", err)
 	}
+	if *runID == 0 {
+		if err := db.QueryRowContext(ctx, "SELECT id FROM runs ORDER BY id DESC LIMIT 1").Scan(runID); err != nil {
+			log.Fatalf("find latest run: %v", err)
+		}
+	}
 
 	var domainID int
 	err = db.QueryRowContext(ctx,
@@ -56,6 +62,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("find domain %q: %v", *domain, err)
 	}
-	dbController.SaveDelegationDiagnosis(domainID, diagnosis, db)
-	fmt.Printf("Saved diagnosis for domain_id=%d\n", domainID)
+	dbController.SaveDelegationDiagnosis(*runID, domainID, diagnosis, db)
+	fmt.Printf("Saved diagnosis for run_id=%d domain_id=%d\n", *runID, domainID)
 }

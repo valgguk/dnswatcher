@@ -32,6 +32,7 @@ func CreateTables(db *sql.DB, drop bool) {
 	if drop {
 		for _, table := range []string{
 			"web_presence",
+			"domain_diagnostics",
 			"nsid_results",
 			"redundancy_distribution",
 			"dnssec_fail_details",
@@ -68,6 +69,22 @@ func CreateTables(db *sql.DB, drop bool) {
 		ADD COLUMN IF NOT EXISTS delegation_status varchar(20),
 		ADD COLUMN IF NOT EXISTS delegation_missing_in_primary jsonb,
 		ADD COLUMN IF NOT EXISTS delegation_missing_in_parent jsonb`)
+	if err != nil {
+		fmt.Println("OpenConnections", db.Stats())
+		panic(err)
+	}
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS domain_diagnostics (
+		id SERIAL PRIMARY KEY,
+		run_id integer NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+		domain_id integer NOT NULL REFERENCES domain(id) ON DELETE CASCADE,
+		delegation_status varchar(20),
+		delegation_missing_in_primary jsonb,
+		delegation_missing_in_parent jsonb,
+		soa_serial_sync bool,
+		soa_reference_serial bigint,
+		created_at timestamp NOT NULL DEFAULT now()
+	)`)
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
@@ -153,7 +170,7 @@ func CreateTables(db *sql.DB, drop bool) {
 }
 
 // SaveDelegationDiagnosis stores the comparison between the primary zone and its parent delegation.
-func SaveDelegationDiagnosis(domainID int, diagnosis analyzer.DelegationDiagnosis, db *sql.DB) {
+func SaveDelegationDiagnosis(runID, domainID int, diagnosis analyzer.DelegationDiagnosis, db *sql.DB) {
 	missingInPrimary, err := json.Marshal(diagnosis.MissingInPrimary)
 	if err != nil {
 		panic(err)
@@ -163,12 +180,10 @@ func SaveDelegationDiagnosis(domainID int, diagnosis analyzer.DelegationDiagnosi
 		panic(err)
 	}
 	_, err = db.Exec(
-		`UPDATE domain
-		 SET delegation_status = $1,
-		     delegation_missing_in_primary = $2::jsonb,
-		     delegation_missing_in_parent = $3::jsonb
-		 WHERE id = $4`,
-		diagnosis.Status, missingInPrimary, missingInParent, domainID,
+		`INSERT INTO domain_diagnostics
+			(run_id, domain_id, delegation_status, delegation_missing_in_primary, delegation_missing_in_parent)
+		 VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
+		runID, domainID, diagnosis.Status, missingInPrimary, missingInParent,
 	)
 	if err != nil {
 		panic(err)
