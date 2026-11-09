@@ -1119,6 +1119,15 @@ func collectSingleDomainInfo(domainName string, runId int, db *sql.DB) {
 			}
 		}
 		dbController.SaveEDNS0Diagnosis(runId, domainId, analyzer.ValidateEDNS0(ednsResults), db)
+		tcpResults := make([]analyzer.TCPCheckResult, 0, len(primaryNameservers))
+		for index, nameserver := range primaryNameservers {
+			if authorityResults[index].Authoritative != nil &&
+				*authorityResults[index].Authoritative &&
+				authorityResults[index].Error == "" {
+				tcpResults = append(tcpResults, queryTCPSupport(nameserver, domainName))
+			}
+		}
+		dbController.SaveTCPDiagnosis(runId, domainId, analyzer.ValidateTCPSupport(tcpResults), db)
 
 		for _, nameserver := range domainsNameservers { //for each nameserver of the current domain_name
 			if ns, ok := nameserver.(*dns.NS); ok {
@@ -1358,6 +1367,49 @@ func queryEDNS0(nsServer, domainName string) analyzer.EDNS0CheckResult {
 	return analyzer.EDNS0CheckResult{
 		Server:         nsServer,
 		EDNS0Supported: &supported,
+	}
+}
+
+// queryTCPSupport performs a direct SOA query over TCP on port 53.
+func queryTCPSupport(nsServer, domainName string) analyzer.TCPCheckResult {
+	client := &dns.Client{Net: "tcp", Timeout: 5 * time.Second}
+	message := new(dns.Msg)
+	message.SetQuestion(dns.Fqdn(domainName), dns.TypeSOA)
+
+	response, _, err := client.Exchange(message, net.JoinHostPort(nsServer, "53"))
+	if err != nil {
+		if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+			return analyzer.TCPCheckResult{Server: nsServer, Error: "tcp_timeout"}
+		}
+		unsupported := false
+		return analyzer.TCPCheckResult{
+			Server:       nsServer,
+			TCPSupported: &unsupported,
+			Error:        "tcp_connection_failed",
+		}
+	}
+	if response == nil {
+		return analyzer.TCPCheckResult{Server: nsServer, Error: "tcp_null_response"}
+	}
+	if response.Rcode != dns.RcodeSuccess {
+		unsupported := false
+		return analyzer.TCPCheckResult{
+			Server:       nsServer,
+			TCPSupported: &unsupported,
+			Error:        "tcp_invalid_response",
+		}
+	}
+	for _, answer := range response.Answer {
+		if _, ok := answer.(*dns.SOA); ok {
+			supported := true
+			return analyzer.TCPCheckResult{Server: nsServer, TCPSupported: &supported}
+		}
+	}
+	unsupported := false
+	return analyzer.TCPCheckResult{
+		Server:       nsServer,
+		TCPSupported: &unsupported,
+		Error:        "tcp_no_soa",
 	}
 }
 

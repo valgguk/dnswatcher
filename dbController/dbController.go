@@ -89,6 +89,8 @@ func CreateTables(db *sql.DB, drop bool) {
 		vulnerable_recursion_servers jsonb,
 		edns0_validation bool,
 		non_edns0_servers jsonb,
+		tcp_support_validation bool,
+		non_tcp_servers jsonb,
 		created_at timestamp NOT NULL DEFAULT now()
 	)`)
 	if err != nil {
@@ -105,7 +107,9 @@ func CreateTables(db *sql.DB, drop bool) {
 		ADD COLUMN IF NOT EXISTS open_recursion_risk bool,
 		ADD COLUMN IF NOT EXISTS vulnerable_recursion_servers jsonb,
 		ADD COLUMN IF NOT EXISTS edns0_validation bool,
-		ADD COLUMN IF NOT EXISTS non_edns0_servers jsonb`)
+		ADD COLUMN IF NOT EXISTS non_edns0_servers jsonb,
+		ADD COLUMN IF NOT EXISTS tcp_support_validation bool,
+		ADD COLUMN IF NOT EXISTS non_tcp_servers jsonb`)
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
@@ -283,6 +287,24 @@ func SaveEDNS0Diagnosis(runID, domainID int, diagnosis analyzer.EDNS0Diagnosis, 
 		     non_edns0_servers = $2::jsonb
 		 WHERE run_id = $3 AND domain_id = $4`,
 		diagnosis.EDNS0Validation, nonEDNS0, runID, domainID,
+	)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// SaveTCPDiagnosis updates the TCP/53 support metrics for a domain run.
+func SaveTCPDiagnosis(runID, domainID int, diagnosis analyzer.TCPDiagnosis, db *sql.DB) {
+	nonTCP, err := json.Marshal(diagnosis.NonTCPServers)
+	if err != nil {
+		panic(err)
+	}
+	_, err = db.Exec(
+		`UPDATE domain_diagnostics
+		 SET tcp_support_validation = $1,
+		     non_tcp_servers = $2::jsonb
+		 WHERE run_id = $3 AND domain_id = $4`,
+		diagnosis.TCPSupportValidation, nonTCP, runID, domainID,
 	)
 	if err != nil {
 		panic(err)
