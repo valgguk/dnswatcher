@@ -1101,6 +1101,24 @@ func collectSingleDomainInfo(domainName string, runId int, db *sql.DB) {
 		}
 		dbController.SaveSOASyncDiagnosis(runId, domainId, analyzer.ValidateSerialSync(soaResults), db)
 		dbController.SaveAuthoritativeDiagnosis(runId, domainId, analyzer.ValidateAuthoritativeFlags(authorityResults), db)
+		recursionResults := make([]analyzer.RecursionCheckResult, 0, len(primaryNameservers))
+		for index, nameserver := range primaryNameservers {
+			if authorityResults[index].Authoritative != nil &&
+				*authorityResults[index].Authoritative &&
+				authorityResults[index].Error == "" {
+				recursionResults = append(recursionResults, queryRecursionAndAA(nameserver, domainName))
+			}
+		}
+		dbController.SaveRecursionDiagnosis(runId, domainId, analyzer.ValidateOpenRecursion(recursionResults), db)
+		ednsResults := make([]analyzer.EDNS0CheckResult, 0, len(primaryNameservers))
+		for index, nameserver := range primaryNameservers {
+			if authorityResults[index].Authoritative != nil &&
+				*authorityResults[index].Authoritative &&
+				authorityResults[index].Error == "" {
+				ednsResults = append(ednsResults, queryEDNS0(nameserver, domainName))
+			}
+		}
+		dbController.SaveEDNS0Diagnosis(runId, domainId, analyzer.ValidateEDNS0(ednsResults), db)
 
 		for _, nameserver := range domainsNameservers { //for each nameserver of the current domain_name
 			if ns, ok := nameserver.(*dns.NS); ok {
@@ -1295,6 +1313,52 @@ func queryAuthoritativeAndSOA(nsServer, domainName string) (analyzer.NSSerialRes
 func querySOASerial(nsServer, domainName string) analyzer.NSSerialResult {
 	result, _ := queryAuthoritativeAndSOA(nsServer, domainName)
 	return result
+}
+
+// queryRecursionAndAA sends RD=1 and captures the response AA and RA flags.
+func queryRecursionAndAA(nsServer, domainName string) analyzer.RecursionCheckResult {
+	client := &dns.Client{Timeout: 4 * time.Second}
+	message := new(dns.Msg)
+	message.SetQuestion(dns.Fqdn(domainName), dns.TypeSOA)
+	message.RecursionDesired = true
+
+	response, _, err := client.Exchange(message, net.JoinHostPort(nsServer, "53"))
+	if err != nil {
+		return analyzer.RecursionCheckResult{Server: nsServer, Error: "ns_unverifiable_error"}
+	}
+	if response == nil {
+		return analyzer.RecursionCheckResult{Server: nsServer, Error: "ns_unverifiable_null_error"}
+	}
+
+	authoritative := response.Authoritative
+	recursionAvailable := response.RecursionAvailable
+	return analyzer.RecursionCheckResult{
+		Server:             nsServer,
+		Authoritative:      &authoritative,
+		RecursionAvailable: &recursionAvailable,
+	}
+}
+
+// queryEDNS0 requests an EDNS0 OPT record with a 1232-byte UDP buffer.
+func queryEDNS0(nsServer, domainName string) analyzer.EDNS0CheckResult {
+	client := &dns.Client{Timeout: 4 * time.Second}
+	message := new(dns.Msg)
+	message.SetQuestion(dns.Fqdn(domainName), dns.TypeSOA)
+	message.SetEdns0(1232, false)
+
+	response, _, err := client.Exchange(message, net.JoinHostPort(nsServer, "53"))
+	if err != nil {
+		return analyzer.EDNS0CheckResult{Server: nsServer, Error: "ns_unverifiable_error"}
+	}
+	if response == nil {
+		return analyzer.EDNS0CheckResult{Server: nsServer, Error: "ns_unverifiable_null_error"}
+	}
+
+	supported := response.IsEdns0() != nil
+	return analyzer.EDNS0CheckResult{
+		Server:         nsServer,
+		EDNS0Supported: &supported,
+	}
 }
 
 // querySOA sends a DNS SOA (Start of Authority) query to the specified server using the given protocol.

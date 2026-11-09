@@ -85,6 +85,10 @@ func CreateTables(db *sql.DB, drop bool) {
 		soa_reference_serial bigint,
 		authoritative_flag_check bool,
 		non_authoritative_servers jsonb,
+		open_recursion_risk bool,
+		vulnerable_recursion_servers jsonb,
+		edns0_validation bool,
+		non_edns0_servers jsonb,
 		created_at timestamp NOT NULL DEFAULT now()
 	)`)
 	if err != nil {
@@ -97,7 +101,11 @@ func CreateTables(db *sql.DB, drop bool) {
 		ADD COLUMN IF NOT EXISTS soa_mismatch_servers jsonb,
 		ADD COLUMN IF NOT EXISTS soa_unverifiable_servers jsonb,
 		ADD COLUMN IF NOT EXISTS authoritative_flag_check bool,
-		ADD COLUMN IF NOT EXISTS non_authoritative_servers jsonb`)
+		ADD COLUMN IF NOT EXISTS non_authoritative_servers jsonb,
+		ADD COLUMN IF NOT EXISTS open_recursion_risk bool,
+		ADD COLUMN IF NOT EXISTS vulnerable_recursion_servers jsonb,
+		ADD COLUMN IF NOT EXISTS edns0_validation bool,
+		ADD COLUMN IF NOT EXISTS non_edns0_servers jsonb`)
 	if err != nil {
 		fmt.Println("OpenConnections", db.Stats())
 		panic(err)
@@ -239,6 +247,42 @@ func SaveAuthoritativeDiagnosis(runID, domainID int, diagnosis analyzer.Authorit
 		     non_authoritative_servers = $2::jsonb
 		 WHERE run_id = $3 AND domain_id = $4`,
 		diagnosis.AllAuthoritative, nonAuthoritative, runID, domainID,
+	)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// SaveRecursionDiagnosis updates the open recursion metrics for a domain run.
+func SaveRecursionDiagnosis(runID, domainID int, diagnosis analyzer.RecursionDiagnosis, db *sql.DB) {
+	vulnerable, err := json.Marshal(diagnosis.VulnerableRecursionServers)
+	if err != nil {
+		panic(err)
+	}
+	_, err = db.Exec(
+		`UPDATE domain_diagnostics
+		 SET open_recursion_risk = $1,
+		     vulnerable_recursion_servers = $2::jsonb
+		 WHERE run_id = $3 AND domain_id = $4`,
+		diagnosis.OpenRecursionRisk, vulnerable, runID, domainID,
+	)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// SaveEDNS0Diagnosis updates the EDNS0 support metrics for a domain run.
+func SaveEDNS0Diagnosis(runID, domainID int, diagnosis analyzer.EDNS0Diagnosis, db *sql.DB) {
+	nonEDNS0, err := json.Marshal(diagnosis.NonEDNS0Servers)
+	if err != nil {
+		panic(err)
+	}
+	_, err = db.Exec(
+		`UPDATE domain_diagnostics
+		 SET edns0_validation = $1,
+		     non_edns0_servers = $2::jsonb
+		 WHERE run_id = $3 AND domain_id = $4`,
+		diagnosis.EDNS0Validation, nonEDNS0, runID, domainID,
 	)
 	if err != nil {
 		panic(err)
